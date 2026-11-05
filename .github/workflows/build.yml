@@ -1,0 +1,48 @@
+name: Build Keyty (sandboxed, no updater)
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Upstream commit SHA
+        required: true
+        default: e30e0644df03536a4169936c7e19a049229beb5b
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: keytyapp/Keyty
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install Tuist
+        run: brew install tuist
+      - name: Generate project
+        working-directory: Apps/Keyty
+        run: tuist generate --no-open
+      - name: Build
+        working-directory: Apps/Keyty
+        run: |
+          xcodebuild build \
+            -project Keyty.xcodeproj \
+            -scheme 'Keyty AppStore' \
+            -configuration AppStore \
+            -derivedDataPath build \
+            ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Package
+        run: |
+          mkdir -p out
+          APP=$(find Apps/Keyty/build/Build/Products/AppStore -maxdepth 1 -name '*.app' | head -1)
+          ditto -c -k --keepParent "$APP" out/Keyty.zip
+          cp Apps/Keyty/Sources/Keyty/Resources/AppStore.entitlements out/
+          shasum -a 256 out/Keyty.zip | tee out/SHA256.txt
+          git rev-parse HEAD > out/COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyty-${{ inputs.ref }}
+          path: out/
